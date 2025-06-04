@@ -9,6 +9,7 @@
       margin: 0;
       overflow: hidden;
       height: 100%;
+      background-color: black;
     }
 
     .hamburger {
@@ -24,7 +25,7 @@
     }
 
     #drawingUI {
-      display: none; /* Hidden by default, shown only in AR session */
+      display: none;
     }
 
     canvas#drawingCanvas {
@@ -96,10 +97,10 @@
     const hamburger = document.getElementById('hamburger');
     const drawingUI = document.getElementById('drawingUI');
 
-    let isDrawingUIVisible = false;
     let isNewARDrawingReady = false;
+    let currentMaterial = null;
 
-    // Resize canvas to window
+    // Resize canvas
     function resizeCanvas() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
@@ -127,33 +128,38 @@
       [lastX, lastY] = [x, y];
     }
 
-    // Mouse Events
+    // Mouse
     canvas.addEventListener('mousedown', e => startDrawing(e.offsetX, e.offsetY));
     canvas.addEventListener('mousemove', e => drawLine(e.offsetX, e.offsetY));
     canvas.addEventListener('mouseup', () => drawing = false);
     canvas.addEventListener('mouseout', () => drawing = false);
 
-    // Touch Events
+    // Touch
     canvas.addEventListener('touchstart', e => {
       const touch = e.touches[0];
       startDrawing(touch.clientX, touch.clientY);
       e.preventDefault();
     });
+
     canvas.addEventListener('touchmove', e => {
       const touch = e.touches[0];
       drawLine(touch.clientX, touch.clientY);
       e.preventDefault();
     });
+
     canvas.addEventListener('touchend', () => {
       drawing = false;
 
-      // Auto trigger enterAR logic
+      // Capture drawing
       const dataURL = canvas.toDataURL('image/png');
       const textureLoader = new THREE.TextureLoader();
-      textureLoader.load(dataURL, (texture) => {
+      textureLoader.load(dataURL, texture => {
         currentMaterial = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
         isNewARDrawingReady = true;
       });
+
+      // Auto clear canvas on touchend
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
     });
 
     document.getElementById('clearCanvas').addEventListener('click', () => {
@@ -163,7 +169,7 @@
     document.getElementById('enterAR').addEventListener('click', () => {
       const dataURL = canvas.toDataURL('image/png');
       const textureLoader = new THREE.TextureLoader();
-      textureLoader.load(dataURL, (texture) => {
+      textureLoader.load(dataURL, texture => {
         currentMaterial = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
         isNewARDrawingReady = true;
       });
@@ -171,12 +177,10 @@
 
     hamburger.addEventListener('click', () => {
       drawingUI.classList.toggle('hidden');
-      isDrawingUIVisible = !drawingUI.classList.contains('hidden');
     });
 
     // AR Setup
     let scene, camera, renderer, controller;
-    let currentMaterial = null;
 
     initAR();
 
@@ -215,7 +219,6 @@
         isNewARDrawingReady = false;
       });
 
-      // Show/hide UI when AR session starts/ends
       renderer.xr.addEventListener('sessionstart', () => {
         drawingUI.style.display = 'block';
         hamburger.style.display = 'block';
@@ -227,7 +230,7 @@
           ctx.clearRect(0, 0, canvas.width, canvas.height);
           currentMaterial = null;
           isNewARDrawingReady = false;
-          console.log('✅ AR session ended. Cache cleared.');
+          console.log('✅ AR session ended and canvas cleared');
         });
       });
 
