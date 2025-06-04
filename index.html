@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Canvas Drawing to AR Placement</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    html, body {
+      margin: 0;
+      overflow: hidden;
+      height: 100%;
+    }
+
+    .hamburger {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      font-size: 28px;
+      z-index: 3;
+      background: rgba(255,255,255,0.9);
+      padding: 5px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    #drawingUI {
+      display: none; /* Hidden by default, shown only in AR session */
+    }
+
+    canvas#drawingCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+      touch-action: none;
+    }
+
+    .controls {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 2;
+      background: rgba(255,255,255,0.9);
+      padding: 10px;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .controls .row {
+      display: flex;
+      gap: 10px;
+    }
+
+    button {
+      padding: 5px 10px;
+    }
+  </style>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/examples/jsm/webxr/ARButton.js": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/webxr/ARButton.js"
+      }
+    }
+  </script>
+</head>
+<body>
+
+  <div class="hamburger" id="hamburger" style="display:none;">☰</div>
+
+  <div id="drawingUI">
+    <div class="controls">
+      <div class="row">
+        <label>Color: <input type="color" id="colorPicker" value="#000000"></label>
+        <label>Brush: <input type="range" id="brushSize" min="1" max="50" value="5"></label>
+        <button id="enterAR">Draw → AR</button>
+      </div>
+      <div class="row">
+        <button id="clearCanvas">Clear</button>
+      </div>
+    </div>
+    <canvas id="drawingCanvas"></canvas>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { ARButton } from 'three/examples/jsm/webxr/ARButton.js';
+
+    const canvas = document.getElementById('drawingCanvas');
+    const ctx = canvas.getContext('2d');
+    const colorPicker = document.getElementById('colorPicker');
+    const brushSize = document.getElementById('brushSize');
+    const hamburger = document.getElementById('hamburger');
+    const drawingUI = document.getElementById('drawingUI');
+
+    let isDrawingUIVisible = false;
+    let isNewARDrawingReady = false;
+
+    // Resize canvas to window
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    let drawing = false;
+    let lastX = 0, lastY = 0;
+
+    function startDrawing(x, y) {
+      drawing = true;
+      [lastX, lastY] = [x, y];
+    }
+
+    function drawLine(x, y) {
+      if (!drawing) return;
+      ctx.strokeStyle = colorPicker.value;
+      ctx.lineWidth = brushSize.value;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      [lastX, lastY] = [x, y];
+    }
+
+    // Mouse Events
+    canvas.addEventListener('mousedown', e => startDrawing(e.offsetX, e.offsetY));
+    canvas.addEventListener('mousemove', e => drawLine(e.offsetX, e.offsetY));
+    canvas.addEventListener('mouseup', () => drawing = false);
+    canvas.addEventListener('mouseout', () => drawing = false);
+
+    // Touch Events
+    canvas.addEventListener('touchstart', e => {
+      const touch = e.touches[0];
+      startDrawing(touch.clientX, touch.clientY);
+      e.preventDefault();
+    });
+    canvas.addEventListener('touchmove', e => {
+      const touch = e.touches[0];
+      drawLine(touch.clientX, touch.clientY);
+      e.preventDefault();
+    });
+    canvas.addEventListener('touchend', () => {
+      drawing = false;
+
+      // Auto trigger enterAR logic
+      const dataURL = canvas.toDataURL('image/png');
+      const textureLoader = new THREE.TextureLoader();
+      textureLoader.load(dataURL, (texture) => {
+        currentMaterial = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+        isNewARDrawingReady = true;
+      });
+    });
+
+    document.getElementById('clearCanvas').addEventListener('click', () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    });
+
+    document.getElementById('enterAR').addEventListener('click', () => {
+      const dataURL = canvas.toDataURL('image/png');
+      const textureLoader = new THREE.TextureLoader();
+      textureLoader.load(dataURL, (texture) => {
+        currentMaterial = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+        isNewARDrawingReady = true;
+      });
+    });
+
+    hamburger.addEventListener('click', () => {
+      drawingUI.classList.toggle('hidden');
+      isDrawingUIVisible = !drawingUI.classList.contains('hidden');
+    });
+
+    // AR Setup
+    let scene, camera, renderer, controller;
+    let currentMaterial = null;
+
+    initAR();
+
+    function initAR() {
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera();
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled = true;
+      document.body.appendChild(renderer.domElement);
+
+      const arButton = ARButton.createButton(renderer, {
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['dom-overlay'],
+        domOverlay: { root: document.body }
+      });
+      document.body.appendChild(arButton);
+
+      controller = renderer.xr.getController(0);
+      scene.add(controller);
+
+      controller.addEventListener('select', () => {
+        if (!isNewARDrawingReady || !currentMaterial) return;
+
+        const aspect = canvas.width / canvas.height;
+        const geometry = new THREE.PlaneGeometry(0.4, 0.4 / aspect);
+        const plane = new THREE.Mesh(geometry, currentMaterial.clone());
+
+        const cameraDirection = new THREE.Vector3();
+        camera.getWorldDirection(cameraDirection);
+        plane.position.copy(camera.position).add(cameraDirection.multiplyScalar(1.5));
+        plane.quaternion.copy(camera.quaternion);
+        scene.add(plane);
+
+        isNewARDrawingReady = false;
+      });
+
+      // Show/hide UI when AR session starts/ends
+      renderer.xr.addEventListener('sessionstart', () => {
+        drawingUI.style.display = 'block';
+        hamburger.style.display = 'block';
+
+        const session = renderer.xr.getSession();
+        session.addEventListener('end', () => {
+          drawingUI.style.display = 'none';
+          hamburger.style.display = 'none';
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          currentMaterial = null;
+          isNewARDrawingReady = false;
+          console.log('✅ AR session ended. Cache cleared.');
+        });
+      });
+
+      renderer.setAnimationLoop(() => {
+        renderer.render(scene, camera);
+      });
+    }
+  </script>
+</body>
+</html>
